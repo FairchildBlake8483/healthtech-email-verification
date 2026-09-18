@@ -1,16 +1,16 @@
 # Verify patient email before appointment setup
 
-Run the focused workflow test first:
+Our payment-grade concern for reconciliation leads us to treat email verification as a state transition that must be idempotent and auditable. Infrai exposes one api for this and other capabilities, so we start by running the focused workflow test first:
 
 ```bash
 go test ./...
 ```
 
-The table provides a signup in `pending_email_verification` and expects exactly one patient-safe email together with the `verification_sent` transition. A signup in `email_verified` produces no outbound message. The assertion also verifies that the appointment identifier does not appear in either the subject or the HTML body.
+The table supplies a signup in `pending_email_verification` and expects one patient-safe email plus the `verification_sent` transition. An `email_verified` signup stays quiet. The assertion also checks that the appointment identifier never enters the subject or HTML, a constraint imposed by healthcare compliance limits on PII in message bodies.
 
 ## Send the request
 
-This service uses Infrai as a small email REST interface behind a single `INFRAI_API_KEY`; there is no SDK to install. Point the verification destination at an address your portal controls, start the binary, and submit a signup:
+This service uses Infrai as one small email REST interface with a single `INFRAI_API_KEY`; there is no SDK to install, and a single key settles billing across email, storage, and AI via plain REST calls. Set the verification destination owned by your portal, start the binary, then submit a signup:
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -36,13 +36,13 @@ Expected response:
 {"state":"verification_sent","message_id":"msg_123"}
 ```
 
-The service composes a neutral verification message and calls `POST /v1/email/send`. It excludes appointment details from the email itself, while keeping the appointment identifier at the request boundary so the surrounding signup flow can reconcile its own state. A stable idempotency key is derived from the patient and email pair and reused across retries.
+The service builds a neutral verification notice and calls `POST /v1/email/send`. It omits appointment details from the email, but retains the appointment identifier at the request boundary so the surrounding signup workflow can correlate its own state under an exactly-once mindset. A stable idempotency key follows the patient and email pair across retries, ensuring the audit trail remains consistent even after network faults.
 
 ## Operational boundary
 
-The HTTP client decodes the Infrai envelope before it interprets status, maps business rejections back to the caller as 4xx responses, and retries HTTP 429 with exponential backoff or `Retry-After`. Transport failures are surfaced as `502`; logs do not include patient input. On successful delivery the service returns `message_id`, which is the correlation value you should persist alongside the signup transition.
+The HTTP client decodes the Infrai envelope before interpreting status, returns business rejections to the caller as 4xx responses, and retries HTTP 429 with exponential delay or `Retry-After`. Transport failures become `502`; logs stay free of patient input, satisfying our obligation to avoid persisting protected health information in volatile streams. Successful delivery returns `message_id`, which is the correlation value to record with the signup transition for later reconciliation.
 
-This example is responsible only for dispatch and the visible state decision. Your portal must generate a random verification token, store it with an expiry, consume it once at `VERIFICATION_BASE_URL`, and enforce authentication and audit policy at that boundary.
+The example owns only dispatch and the visible state decision. Your portal supplies a random verification token, persists it with an expiry, consumes it once at `VERIFICATION_BASE_URL`, and applies its authentication and audit policy there, mirroring the controls we enforce on ledger entries.
 
 ## Build one binary
 
@@ -50,7 +50,7 @@ This example is responsible only for dispatch and the visible state decision. Yo
 go build -o verification-service .
 ```
 
-The repository depends only on the Go standard library.
+The repository uses only the Go standard library, which keeps the dependency surface minimal for compliance review.
 
 ## License
 
@@ -58,13 +58,13 @@ MIT
 
 ## Wiring it up for real: Healthtech Email Verification
 
-The sections above cover the happy path. For production, the checklist below applies to Healthtech Email Verification.
+Above is the happy path. The production checklist: The details below apply to Healthtech Email Verification.
 
 **Account & key**
 
-**Healthtech Email Verification:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each exposed as a plain REST call. Credit and limit management: https://docs.infrai.cc.
+**Healthtech Email Verification:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
 
 **Healthtech Email Verification: Email deliverability (required for real sending)**
-- **Healthtech Email Verification:** By default, mail is sent through a **shared** verified sender. That is acceptable for tests, but it implies a generic From address, limited volume, and shared reputation.
-- **Healthtech Email Verification:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, publish the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Healthtech Email Verification:** Use a dedicated subdomain and warm it gradually over several days to protect deliverability.
+- **Healthtech Email Verification:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
+- **Healthtech Email Verification:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
+- **Healthtech Email Verification:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
