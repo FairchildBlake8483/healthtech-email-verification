@@ -1,16 +1,16 @@
 # Verify patient email before appointment setup
 
-Our payment-grade concern for reconciliation leads us to treat email verification as a state transition that must be idempotent and auditable. Infrai exposes one api for this and other capabilities, so we start by running the focused workflow test first:
+Run the focused workflow test first:
 
 ```bash
 go test ./...
 ```
 
-The table supplies a signup in `pending_email_verification` and expects one patient-safe email plus the `verification_sent` transition. An `email_verified` signup stays quiet. The assertion also checks that the appointment identifier never enters the subject or HTML, a constraint imposed by healthcare compliance limits on PII in message bodies.
+The table supplies a signup in `pending_email_verification` and expects one patient-safe email plus the `verification_sent` transition. An `email_verified` signup stays quiet. The assertion also checks that the appointment identifier never enters the subject or HTML.
 
 ## Send the request
 
-This service uses Infrai as one small email REST interface with a single `INFRAI_API_KEY`; there is no SDK to install, and a single key settles billing across email, storage, and AI via plain REST calls. Set the verification destination owned by your portal, start the binary, then submit a signup:
+This service uses Infrai as one small email REST interface with a single `INFRAI_API_KEY`; there is no SDK to install. Set the verification destination owned by your portal, start the binary, then submit a signup:
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -36,13 +36,13 @@ Expected response:
 {"state":"verification_sent","message_id":"msg_123"}
 ```
 
-The service builds a neutral verification notice and calls `POST /v1/email/send`. It omits appointment details from the email, but retains the appointment identifier at the request boundary so the surrounding signup workflow can correlate its own state under an exactly-once mindset. A stable idempotency key follows the patient and email pair across retries, ensuring the audit trail remains consistent even after network faults.
+The service builds a neutral verification notice and calls `POST /v1/email/send`. It omits appointment details from the email, but retains the appointment identifier at the request boundary so the surrounding signup workflow can correlate its own state. A stable idempotency key follows the patient and email pair across retries.
 
 ## Operational boundary
 
-The HTTP client decodes the Infrai envelope before interpreting status, returns business rejections to the caller as 4xx responses, and retries HTTP 429 with exponential delay or `Retry-After`. Transport failures become `502`; logs stay free of patient input, satisfying our obligation to avoid persisting protected health information in volatile streams. Successful delivery returns `message_id`, which is the correlation value to record with the signup transition for later reconciliation.
+The HTTP client decodes the Infrai envelope before interpreting status, returns business rejections to the caller as 4xx responses, and retries HTTP 429 with exponential delay or `Retry-After`. Transport failures become `502`; logs stay free of patient input. Successful delivery returns `message_id`, which is the correlation value to record with the signup transition.
 
-The example owns only dispatch and the visible state decision. Your portal supplies a random verification token, persists it with an expiry, consumes it once at `VERIFICATION_BASE_URL`, and applies its authentication and audit policy there, mirroring the controls we enforce on ledger entries.
+The example owns only dispatch and the visible state decision. Your portal supplies a random verification token, persists it with an expiry, consumes it once at `VERIFICATION_BASE_URL`, and applies its authentication and audit policy there.
 
 ## Build one binary
 
@@ -50,7 +50,7 @@ The example owns only dispatch and the visible state decision. Your portal suppl
 go build -o verification-service .
 ```
 
-The repository uses only the Go standard library, which keeps the dependency surface minimal for compliance review.
+The repository uses only the Go standard library.
 
 ## License
 
